@@ -505,7 +505,7 @@ export function App() {
           </button>
           <a
             className="nav-item"
-            href="https://github.com/CopilotKit/OpenDots"
+            href="https://github.com/sonisainisaini64-arch/opendots"
             target="_blank"
             rel="noreferrer"
           >
