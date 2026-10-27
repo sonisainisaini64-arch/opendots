@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenDots Free Voice — talk to any Dot, no paid voice key</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; background: #0f172a; color: #e2e8f0; }
+  h1 { font-size: 1.4rem; }
+  label { display: block; margin-top: 1rem; font-weight: 600; }
+  input, select, textarea, button { font: inherit; padding: 0.5rem; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; width: 100%; box-sizing: border-box; }
+  button { cursor: pointer; background: #2563eb; border: none; margin-top: 0.75rem; }
+  button.secondary { background: #334155; }
+  button:disabled { opacity: 0.5; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  #log { white-space: pre-wrap; background: #020617; padding: 1rem; border-radius: 8px; min-height: 180px; margin-top: 1rem; }
+  .note { color: #94a3b8; font-size: 0.9rem; }
+  a { color: #93c5fd; }
+</style>
+</head>
+<body>
+<h1>🎙️ OpenDots Free Voice</h1>
+<p>Talk to any Dot by voice — <strong>free, and model-agnostic</strong>. Your browser does speech-to-text and text-to-speech for free (no key). The server only runs the Dot's normal chat turn, with whatever chat model is configured in OpenDots (Groq today, any OpenAI-compatible model tomorrow). This does <strong>not</strong> use OpenAI Realtime and does not need a paid voice key.</p>
+<p class="note">How it works, turn by turn: you speak → browser transcribes → text goes to the Dot → Dot replies in text → browser speaks the reply. It is push-to-talk, not a live duplex call — you speak, then the Dot speaks. No API key is in this page, and no key is ever sent from this page.</p>
+
+<label>OpenDots server URL
+<input id="serverUrl" value="http://127.0.0.1:4310" placeholder="http://127.0.0.1:4310">
+</label>
+<p class="note">Use the URL where <em>your</em> OpenDots runs. If OpenDots runs on this same laptop, keep <code>http://127.0.0.1:4310</code>. If it runs on a remote VM, this page can only reach it through an HTTPS URL you have exposed for it — localhost on a VM is not reachable from your laptop browser.</p>
+
+<div class="row">
+  <div>
+    <label>Dot
+    <select id="dotSelect"><option value="">Load Dots first…</option></select>
+    </label>
+  </div>
+  <div>
+    <label><input type="checkbox" id="speakReply" checked style="width:auto"> Speak the Dot's reply aloud</label>
+  </div>
+</div>
+<button id="loadDots" class="secondary">Load Dots from server</button>
+<button id="newChat" class="secondary">Start new voice chat with this Dot</button>
+
+<label>Your message (type, or use the mic button)
+<textarea id="message" rows="3" placeholder="Say or type your message to the Dot…"></textarea>
+</label>
+<div class="row">
+  <button id="micBtn">🎤 Start listening</button>
+  <button id="sendBtn">Send to Dot &amp; speak reply</button>
+</div>
+
+<div id="log">Status: load Dots, start a chat, then speak or type.</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let threadId = null;
+let recognition = null;
+let listening = false;
+function log(s) { $('log').textContent += '\n' + s; }
+function server() { return $('serverUrl').value.replace(/\/$/, ''); }
+function speak(text) {
+  if (!$('speakReply').checked) return;
+  if (!('speechSynthesis' in window)) { log('Browser TTS not available.'); return; }
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-US';
+  window.speechSynthesis.speak(u);
+}
+$('loadDots').onclick = async () => {
+  try {
+    const r = await fetch(server() + '/api/workspace');
+    if (!r.ok) throw new Error('Server returned ' + r.status);
+    const d = await r.json();
+    const sel = $('dotSelect');
+    sel.innerHTML = '';
+    (d.dots || []).forEach(dot => {
+      const o = document.createElement('option');
+      o.value = dot.id; o.textContent = dot.name;
+      sel.appendChild(o);
+    });
+    log('Dots loaded: ' + (d.dots || []).map(x => x.name).join(', ') + '. Setup: ' + JSON.stringify(d.setup));
+  } catch (e) { log('Could not reach server: ' + e.message + '. Check the server URL and that OpenDots is running.'); }
+};
+$('newChat').onclick = async () => {
+  const dotId = $('dotSelect').value;
+  if (!dotId) { log('Pick a Dot first (Load Dots).'); return; }
+  try {
+    const r = await fetch(server() + '/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dotId, title: 'Free voice chat' }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('Server returned ' + r.status));
+    threadId = d.id;
+    log('New voice chat started with ' + $('dotSelect').selectedOptions[0].textContent + '. Thread: ' + threadId);
+  } catch (e) { log('Could not start chat: ' + e.message); }
+};
+$('micBtn').onclick = () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { log('This browser has no SpeechRecognition. Use Chrome, or type your message instead.'); return; }
+  if (listening) { recognition.stop(); return; }
+  recognition = new SR();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.onresult = (e) => { $('message').value = e.results[0][0].transcript; log('Heard: ' + $('message').value); };
+  recognition.onend = () => { listening = false; $('micBtn').textContent = '🎤 Start listening'; };
+  recognition.onerror = (e) => { log('Mic error: ' + e.error); listening = false; $('micBtn').textContent = '🎤 Start listening'; };
+  recognition.start();
+  listening = true;
+  $('micBtn').textContent = '⏹ Stop listening';
+};
+$('sendBtn').onclick = async () => {
+  const text = $('message').value.trim();
+  if (!threadId) { log('Start a voice chat first.'); return; }
+  if (!text) { log('Say or type a message first.'); return; }
+  log('You: ' + text);
+  $('sendBtn').disabled = true;
+  try {
+    const r = await fetch(server() + '/api/free-voice/turn', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threadId, text }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('Server returned ' + r.status));
+    log('Dot: ' + d.reply);
+    speak(d.reply);
+    $('message').value = '';
+  } catch (e) { log('Voice turn failed: ' + e.message); }
+  $('sendBtn').disabled = false;
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenDots self-hosted agent template (production build)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hatch/workspace/opendots
+Environment=no_proxy=localhost,127.0.0.1,::1
+ExecStart=/usr/bin/node --env-file-if-exists=.env dist/server/server/index.js
+Restart=always
+RestartSec=5
+StartLimitBurst=10
+TimeoutStopSec=20
+KillMode=control-group
+StandardOutput=append:/home/hatch/workspace/opendots/server.log
+StandardError=append:/home/hatch/workspace/opendots/server.log
+
+[Install]
+WantedBy=default.target
